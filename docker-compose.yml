@@ -1,0 +1,87 @@
+version: "3.8"
+
+services:
+  traefik:
+    image: traefik:v2.3.1
+    ports:
+      - "80:80"
+      - "443:443"
+    networks:
+      - hpc-access
+    restart: unless-stopped
+    command:
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.http.redirections.entryPoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entryPoint.scheme=https"
+      - "--entrypoints.web.http.redirections.entrypoint.permanent=true"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+
+  hpc-access-web:
+    image: ghcr.io/bihealth/hpc-access:main-0
+    env_file:
+      - .env
+    networks:
+      - hpc-access
+    restart: unless-stopped
+    volumes:
+      - "/root/hpc-access-background-db-20201006:/data:ro"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.middlewares.xforward.headers.customrequestheaders.X-Forwarded-Proto=https"
+      - "traefik.http.routers.hpc-access-web.entrypoints=web,websecure"
+      - "traefik.http.routers.hpc-access-web.middlewares=xforward"
+      - "traefik.http.routers.hpc-access-web.rule=HostRegexp(`{catchall:.+}`)"
+      - "traefik.http.services.hpc-access-web.loadbalancer.server.port=8080"
+      - "traefik.http.routers.hpc-access-web.tls=true"
+
+  # hpc-access-celerybeat:
+  #   image: ghcr.io/bihealth/hpc-access:main-0
+  #   env_file:
+  #     - .env
+  #   command: ["celerybeat"]
+  #   networks:
+  #     - hpc-access
+  #   depends_on:
+  #     - hpc-access-web
+  #   restart: unless-stopped
+
+  # hpc-access-celeryd-default:
+  #   image: ghcr.io/bihealth/hpc-access:main-0
+  #   env_file:
+  #     - .env
+  #   command: ["celeryd"]
+  #   environment:
+  #     - CELERY_QUEUES=default
+  #     - CELERY_WORKERS=16
+  #   depends_on:
+  #     - hpc-access-web
+  #   networks:
+  #     - hpc-access
+  #   restart: unless-stopped
+
+  postgres:
+    image: postgres:14
+    env_file:
+      - .env
+    networks:
+      - hpc-access
+    restart: unless-stopped
+    volumes:
+      - type: bind
+        source: ./volumes/postgres/data
+        target: /var/lib/postgresql/data
+
+  redis:
+    image: redis:6
+    networks:
+      - hpc-access
+    restart: unless-stopped
+    volumes:
+      - "./volumes/redis/data:/data:rw"
+
+networks:
+  hpc-access:
