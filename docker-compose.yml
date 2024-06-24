@@ -21,14 +21,21 @@ services:
       - "/var/run/docker.sock:/var/run/docker.sock:ro"
 
   hpc-access-web:
-    image: ghcr.io/bihealth/hpc-access:main-0
+    image: ghcr.io/bihealth/hpc-access:main
     env_file:
       - .env
     networks:
       - hpc-access
+    depends_on:
+      - redis
+      - postgres
     restart: unless-stopped
     volumes:
       - "/root/hpc-access-background-db-20201006:/data:ro"
+      - "/data-import:/usr/src/app/data-import"
+      - type: bind  # LDAP CA certificate
+        source: ./volumes/ldap/ldap_ca_cert.pem
+        target: /etc/ssl/certs/ldap_ca_cert.pem
     labels:
       - "traefik.enable=true"
       - "traefik.http.middlewares.xforward.headers.customrequestheaders.X-Forwarded-Proto=https"
@@ -38,30 +45,31 @@ services:
       - "traefik.http.services.hpc-access-web.loadbalancer.server.port=8080"
       - "traefik.http.routers.hpc-access-web.tls=true"
 
-  # hpc-access-celerybeat:
-  #   image: ghcr.io/bihealth/hpc-access:main-0
-  #   env_file:
-  #     - .env
-  #   command: ["celerybeat"]
-  #   networks:
-  #     - hpc-access
-  #   depends_on:
-  #     - hpc-access-web
-  #   restart: unless-stopped
+  hpc-access-celerybeat:
+    image: ghcr.io/bihealth/hpc-access:main
+    env_file:
+      - .env
+    command: ["celerybeat"]
+    networks:
+      - hpc-access
+    depends_on:
+      - hpc-access-web
+      - redis
+    restart: unless-stopped
 
-  # hpc-access-celeryd-default:
-  #   image: ghcr.io/bihealth/hpc-access:main-0
-  #   env_file:
-  #     - .env
-  #   command: ["celeryd"]
-  #   environment:
-  #     - CELERY_QUEUES=default
-  #     - CELERY_WORKERS=16
-  #   depends_on:
-  #     - hpc-access-web
-  #   networks:
-  #     - hpc-access
-  #   restart: unless-stopped
+  hpc-access-celeryd-default:
+    image: ghcr.io/bihealth/hpc-access:main
+    env_file:
+      - .env
+    command: ["celeryd"]
+    depends_on:
+      - hpc-access-web
+      - redis
+    networks:
+      - hpc-access
+    volumes:
+      - "/export:/usr/src/app/export"
+    restart: unless-stopped
 
   postgres:
     image: postgres:14
